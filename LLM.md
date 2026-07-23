@@ -5,8 +5,10 @@ surface (HIP-0512). Stdlib-only (`net/http` + `encoding/json`), zero external mo
 any service — cloud, tools, marketing/growth, ops — imports it without dragging a
 dependency graph.
 
-Mirrors the Python producer (`hanzo/python-sdk/pkg/hanzo-research`) verb-for-verb and
-byte-for-byte: every language emits structurally identical records into the one store.
+Mirrors the Python producer (`hanzo/python-sdk/pkg/hanzo-research`) verb-for-verb. Records
+are semantically identical across languages: the server keys each experiment on `(project,
+id = kind:subject:task)`, so every language upserts the same row regardless of JSON
+serialization (Go emits compact bytes; Python/C++ emit spaced — immaterial to the store).
 
 ## Surface
 
@@ -45,13 +47,16 @@ the host, and the calling code site (`runtime.Callers`). Serialized into `meta` 
 exact key order shared with Python/TS: `doc, commits, note, host, hypothesis, predict,
 verdict, because, log`.
 
-## Byte-compatibility
+## Cross-language identity — semantic, not byte
 
-`encode` marshals compact with `SetEscapeHTML(false)` so `& < >` travel literally, matching
-Python's `json.dumps`. `research_test.go` proves Go's canonical meta byte-equals real
-CPython `json.dumps(meta, sort_keys=True)`. Whitespace and numeric shortest-form (`0` vs
-`0.0`) differ on the wire but are JSON-insignificant; the server parses and is idempotent
-by stable id, so records interleave cleanly.
+Records are keyed by the server on `(project, id = kind:subject:task)` (experiments) and
+`(project, benchmark, item, model)` (attempts), so every language upserts the same row
+regardless of serialization — that is the identity guarantee, not byte-matching. `encode`
+marshals compact with `SetEscapeHTML(false)` so `& < >` travel literally rather than as
+escaped sequences; `research_test.go` proves Go's canonical meta is the SAME JSON document
+as CPython `json.dumps(meta, sort_keys=True)`. Whitespace and numeric shortest-form (`0` vs
+`0.0`) differ on the wire but are JSON-insignificant — the server parses and dedupes by
+stable id, so records from every language interleave into one row cleanly.
 
 ## Auth
 

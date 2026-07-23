@@ -2,8 +2,10 @@
 
 // Package research is the ONE way a Go service records and queries R&D evidence on the
 // unified /v1/research surface (HIP-0512). It mirrors the Python and TypeScript producers
-// verb-for-verb and byte-for-byte, so every language emits structurally identical records
-// into the one store.
+// verb-for-verb. Records are semantically identical across languages, not byte-identical:
+// the server keys each experiment on (project, id = kind:subject:task) and each attempt on
+// (project, benchmark, item, model), so every language upserts the same row regardless of
+// JSON serialization.
 //
 // A tiny, zero-config surface makes hand-rolling the obviously worse choice:
 //
