@@ -58,11 +58,13 @@ func gitState(repo string) vcs {
 }
 
 // commitNarrative is the commit-message story: subjects SINCE the last recorded run's sha
-// when known (<since>..HEAD), else the last window commits. Always non-nil (an empty slice
-// serializes to [], byte-identically to the other producers), never nil.
+// when known (<since>..HEAD), else the last window commits. Always non-nil so it serializes
+// to an empty array [], not null — the shape every producer sends and the server expects.
 func commitNarrative(repo, since string, window int) []string {
 	var raw string
-	if since != "" {
+	// since can arrive from a server response; only a git object id (hex) reaches the git
+	// arg, so it can never be read as a flag or a path — anything else falls back to window.
+	if isObjectID(since) {
 		raw = git(repo, "log", since+"..HEAD", "--format=%s")
 	} else {
 		raw = git(repo, "log", "-"+strconv.Itoa(window), "--format=%s")
@@ -76,10 +78,27 @@ func commitNarrative(repo, since string, window int) []string {
 	return out
 }
 
+// isObjectID reports whether s is a git object id — hex only, 1..64 chars (sha1=40,
+// sha256=64). The since value can arrive from a server response and reaches
+// `git log <since>..HEAD`; gating it to hex means it can never be read as a flag (a leading
+// '-') or a path ('/'), which closes the git arg-injection. Parity with the C++ port.
+func isObjectID(s string) bool {
+	if s == "" || len(s) > 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
 // libVersions is the Go-native {module: version} snapshot from the build info — the
 // longitudinal "which lib version regressed X" record. It always names the Go toolchain
 // and the main module; extra module-path prefixes pull in named dependencies. Always
-// non-nil so it serializes to {} byte-identically to the other producers.
+// non-nil so it serializes to an empty object {}, not null — the shape every producer sends.
 func libVersions(extra []string) map[string]string {
 	out := map[string]string{"go": runtime.Version()}
 	bi, ok := debug.ReadBuildInfo()

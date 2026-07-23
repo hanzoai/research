@@ -4,6 +4,7 @@ package research
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -203,6 +204,40 @@ func TestVerdictValidation(t *testing.T) {
 	sealed := m.sealed(t, "ablation")
 	if v := field(t, metaOf(t, sealed), "verdict"); v != `"inconclusive"` {
 		t.Fatalf("a stated hypothesis with no verdict sealed as %s, want inconclusive", v)
+	}
+}
+
+// TestKeyNeverLeaksViaFmt proves the client redacts its api key under every fmt verb. A
+// structured logger, a panic, or a %+v debug dump of the client must never expose the key —
+// a plaintext-secret leak. Both the *Research pointer and the Research value are checked.
+func TestKeyNeverLeaksViaFmt(t *testing.T) {
+	const key = "hk-SUPERSECRET-abc123"
+	c := New(Config{Base: "https://api.hanzo.ai", Key: key, Project: "p"})
+	for _, verb := range []string{"%v", "%+v", "%#v", "%s"} {
+		for _, dump := range []string{fmt.Sprintf(verb, c), fmt.Sprintf(verb, *c)} {
+			if strings.Contains(dump, "SUPERSECRET") || strings.Contains(dump, key) {
+				t.Fatalf("verb %s leaked the key: %s", verb, dump)
+			}
+			if !strings.Contains(dump, "<redacted>") {
+				t.Fatalf("verb %s did not redact the key: %s", verb, dump)
+			}
+		}
+	}
+}
+
+// TestSinceMustBeAGitObjectID proves the since value that reaches `git log <since>..HEAD` is
+// gated to a git object id (hex), so a server-returned value can never inject a git flag or
+// path (the arg-injection Red flagged). Parity with the C++ hex validation.
+func TestSinceMustBeAGitObjectID(t *testing.T) {
+	for _, s := range []string{"abc123", strings.Repeat("a", 40), strings.Repeat("F", 64)} {
+		if !isObjectID(s) {
+			t.Fatalf("isObjectID(%q) = false, want true (a valid object id)", s)
+		}
+	}
+	for _, s := range []string{"", "--output=/tmp/pwned", "HEAD~5", strings.Repeat("a", 65), "../etc", "a b", "-x"} {
+		if isObjectID(s) {
+			t.Fatalf("isObjectID(%q) = true, want false (must fall back to the window)", s)
+		}
 	}
 }
 

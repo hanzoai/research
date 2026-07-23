@@ -18,7 +18,8 @@ const (
 	defaultBase    = "https://api.hanzo.ai"
 	defaultProject = "default"
 	defaultTimeout = 120 * time.Second
-	narrativeDepth = 10 // commits to record when the last run's sha is unknown
+	narrativeDepth = 10      // commits to record when the last run's sha is unknown
+	maxResponse    = 8 << 20 // response-body cap (8 MiB): a hostile server cannot OOM the client
 )
 
 // Config configures a client. The zero value is valid: Base defaults to api.hanzo.ai (or
@@ -63,9 +64,28 @@ func New(cfg Config) *Research {
 		project: firstNonEmpty(cfg.Project, os.Getenv("RESEARCH_PROJECT"), defaultProject),
 		repo:    repo,
 		libs:    cfg.Libs,
-		http:    &http.Client{Timeout: timeout},
+		http: &http.Client{
+			Timeout: timeout,
+			// Never follow redirects: a /v1/research endpoint has no legitimate redirect, and
+			// refusing them denies a hostile 30x any chance to bounce the request (and its
+			// Bearer key) to another host or an SSRF target. Return the 30x as-is.
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
 	}
 }
+
+// String renders the client for logs and debug dumps WITHOUT its key. The api key is a
+// secret and must never reach a log line, so implementing Stringer + GoStringer makes every
+// fmt verb (%v, %+v, %#v, %s) redact it — closing the plaintext-key leak a struct dump
+// would otherwise open. Mirrors the Rust SDK's Debug redaction. Value receiver, so a
+// *Research and a Research value are both covered.
+func (c Research) String() string {
+	return fmt.Sprintf("research.Research{base:%q, project:%q, repo:%q, key:<redacted>}",
+		c.base, c.project, c.repo)
+}
+
+// GoString redacts the key under the %#v (Go-syntax) verb, which does not consult String.
+func (c Research) GoString() string { return c.String() }
 
 // Experiment gets or creates the handle for (kind, subject, task) and posts it in-flight
 // so the ops board sees it immediately. kind is an OPEN string — benchmark, kernel-perf,
@@ -221,7 +241,12 @@ func (c *Research) do(method, path string, body, out any) error {
 		return err
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
+	// Bound the read: a hostile or broken server cannot stream an unbounded body to OOM the
+	// client. Read one byte past the cap so an over-limit body is detected, not silently cut.
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponse+1))
+	if len(data) > maxResponse {
+		return fmt.Errorf("research: %s %s: response exceeds %d-byte cap", method, path, maxResponse)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("research: %s %s: %s: %s", method, path, resp.Status, serverError(data))
 	}
@@ -310,8 +335,10 @@ type GrantRequest struct {
 	Publishable *bool   `json:"publishable,omitempty"`
 }
 
-// encode marshals v as compact JSON with HTML escaping OFF, so <, >, and & travel
-// literally — byte-for-byte as the other language producers emit them.
+// encode marshals v as compact JSON with HTML escaping OFF, so <, >, and & in notes and
+// commit messages travel literally rather than as escaped sequences. The wire bytes are
+// compact (Python/C++ emit spaced json.dumps) — immaterial to the store: the server keys
+// each record on (project, id) and parses the JSON, so every language upserts the same row.
 func encode(v any) ([]byte, error) {
 	var b bytes.Buffer
 	enc := json.NewEncoder(&b)

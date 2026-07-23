@@ -42,9 +42,10 @@ type Result struct {
 	Status   string
 }
 
-// meta carries the scientific frame plus the self-documenting narrative. Its field order
-// and json names are the cross-language contract — identical to the Python and TypeScript
-// producers — so every language emits structurally identical records into the one store.
+// meta carries the scientific frame plus the self-documenting narrative. Its json names are
+// the cross-language contract (field order is shared for readability, but JSON objects are
+// unordered, so order is not load-bearing). Records are keyed and deduped semantically by
+// the server, so every language's meta lands in the same row regardless of serialization.
 type meta struct {
 	Doc        string   `json:"doc"`
 	Commits    []string `json:"commits"`
