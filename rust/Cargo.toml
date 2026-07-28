@@ -1,0 +1,21 @@
+[package]
+name = "hanzo-research"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+description = "Rust SDK for the Hanzo /v1/research evidence plane — record a falsifiable experiment and its verdict straight to cloud."
+repository = "https://github.com/hanzoai/research"
+keywords = ["benchmark", "experiment", "evidence", "hanzo"]
+categories = ["development-tools", "science"]
+
+[dependencies]
+# ureq is blocking on purpose: a benchmark harness is a blocking loop, and a
+# production instrumentation path must not require a runtime to be present.
+# 2.12 is already in the engine and ml lockfiles, so this drags no new graph.
+ureq = { version = "2.12", default-features = false, features = ["tls", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+serde_json = "1"
