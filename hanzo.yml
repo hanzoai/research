@@ -1,0 +1,16 @@
+# Canonical CI/CD config for hanzoai/research — the one file both the hanzoai/ci
+# reusable (.hanzo/workflows/cicd.yml) and platform.hanzo.ai read.
+#
+# A Go module (experiment records + provenance). It ships from a tag and builds
+# no image, so there is no `images:` and no `deploy:` — only a gate.
+#
+# The suite includes an Example test, so `go test` checks the documented output
+# still matches what the code prints — the doc and the behaviour cannot drift
+# apart quietly. `-count=1` so a green is this commit, not the test cache.
+test:
+  - name: build
+    run: |
+      set -e
+      go build ./...
+      go vet ./...
+      go test -race -count=1 ./...
